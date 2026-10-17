@@ -10,11 +10,15 @@ except ImportError:
 
 try:
     import torch
-    import albumentations as Alb
     from torch.utils.data import Dataset, DataLoader
+    import torch.nn as nn
+    import torch.optim as optim
+    from torchvision.models import resnet18, ResNet18_Weights
+
+    import albumentations as Alb
     from albumentations.pytorch import ToTensorV2
 except ImportError:
-    raise Exception("Missing Modules: Install Torch, Albumentations before proceeding")
+    raise Exception("Missing Modules: Install Torch, TorchVision, Albumentations before proceeding")
 
 try:
     from helperModule import compressIconSVG
@@ -118,6 +122,81 @@ class SyntheticChessDataset(Dataset):
         tensorLabel = torch.tensor(label, dtype=torch.long)
 
         return tensorImage, tensorLabel
+
+class ChessBoardCNN(nn.Module):
+    def __init__(self, num_classes: int = 13):
+        super().__init__()
+
+        base_model = resnet18(weights=ResNet18_Weights.DEFAULT)
+
+        self.backbone = nn.Sequential(*list(base_model.children()[::-2]))
+
+        self.head = torch.conv2d(in_channels = 512, out_channels=num_classes, kernel_size=1)
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        features = self.backbone(x)
+        logits = self.head(features)
+        return logits
+
+def trainModel():
+    if torch.cuda.is_available():
+        device = torch.device('cuda')
+    elif torch.mps.is_available():
+        device = torch.device('mps')
+    else:
+        device = torch.device('cpu')
+    print(f"Model is training on device: {device}")
+
+    model = ChessBoardCNN(13).to(device)
+
+    sprites = loadImg()
+    dataset = SyntheticChessDataset(sprites, epochSize=5000)
+    dataloader = DataLoader(dataset, batch_size=32, shuffle=True)
+
+    weights = torch.tensor([0.2] + [1.0] * 12, dtype=torch.float32).to(device)
+    criterion = nn.CrossEntropyLoss(weight=weights)
+    
+    optimizer = optim.AdamW(model.parameters(), lr=0.001)
+
+    num_epochs = 10
+    
+    for epoch in range(num_epochs):
+        model.train() 
+        running_loss = 0.0
+        
+        # 5. The Batch Loop
+        for batch_idx, (images, labels) in enumerate(dataloader):
+
+            # Move data to GPU
+            images = images.to(device)
+            labels = labels.to(device)
+
+            # OPTIMIZATION
+            
+            #Zero out old gradients from the previous batch
+            optimizer.zero_grad()
+            
+            # Forward Pass (Make a guess)
+            # images shape: (32, 3, 256, 256) -> logits shape: (32, 13, 8, 8)
+            logits = model(images)
+            
+            # Calculate Loss (Grade the guess)
+            # Compares the (32, 13, 8, 8) logits against the (32, 8, 8) true integer labels
+            loss = criterion(logits, labels)
+            
+            # Backward Pass & Optimize (Tweak the weights)
+            loss.backward()  # Computes the gradient of the loss w.r.t every weight
+            optimizer.step() # Updates the weights based on the gradients
+            
+            running_loss += loss.item()
+
+            if batch_idx % 50 == 0:
+                print(f"Epoch [{epoch+1}/{num_epochs}] Batch {batch_idx} | Loss: {loss.item():.4f}")
+        
+        avg_loss = running_loss / len(dataloader)
+        print(f"--- Epoch {epoch+1} Completed | Average Loss: {avg_loss:.4f} ---")
+        
+        # Save the model weights after each epoch
+        torch.save(model.state_dict(), f"chessboard_cnn_epoch_{epoch+1}.pth")
 
 if __name__ == '__main__':
     spritesList = loadImg()
