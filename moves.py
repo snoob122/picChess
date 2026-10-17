@@ -155,8 +155,8 @@ class ChessBoard:
         rowCastling = 7 if color == "White" else 0
         if r == rowCastling and c == 4: 
 
-            left = self.castlingPossible['L'] if color == "White" else self.castlingPossible['l']
-            right = self.castlingPossible['R'] if color == "White" else self.castlingPossible['r']
+            left = self.castlingPossible[color]['L'] if color == "White" else self.castlingPossible[color]['l']
+            right = self.castlingPossible[color]['R'] if color == "White" else self.castlingPossible[color]['r']
 
             if left:   # Castling on the left
                 if self.board[r][1] == '.' and self.board[r][2] == '.' and self.board[r][3] == '.':
@@ -194,7 +194,13 @@ class ChessBoard:
                     elif p_upper == 'P': 
                         dir = -1 if opponentColor == "White" else 1
                         moves = [(r + dir, c - 1), (r + dir, c + 1)]
-                    elif p_upper == 'K': moves = self.kingMoves(r, c, opponentColor)
+                    elif p_upper == 'K':
+                        dirKing = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
+                        moves = [
+                            (r + dr, c + dc)
+                            for dr, dc in dirKing
+                            if self.isValidPosition(r + dr, c + dc)
+                        ]
                     
                     if (cur_r, cur_c) in moves:
                         return True
@@ -231,6 +237,7 @@ class ChessBoard:
 
             # Return back
             self.board[r][c] = cur
+            self.board[nr][nc] = '.'
 
             if not isKingChecked:
                 safeMoves.append((nr, nc))
